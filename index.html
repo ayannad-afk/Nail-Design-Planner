@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#B0245A">
+  <meta name="color-scheme" content="light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nail Planner">
+  <meta name="description" content="Plan nail looks from your own polishes and design photos.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Nail Design Planner</title>
+</head>
+<body data-tab="polishes">
+  <header class="topbar">
+    <h1><span class="sparkle" aria-hidden="true">✦</span> Nail Design Planner</h1>
+    <button id="backupBtn" class="icon-btn" type="button" aria-label="Back up or restore my data">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0-4-4m4 4 4-4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <section id="tab-polishes" class="tab" aria-labelledby="h-polishes">
+      <h2 id="h-polishes">My polishes <span class="count" id="polishCount"></span></h2>
+      <div id="polishList" class="list"></div>
+    </section>
+
+    <section id="tab-designs" class="tab" aria-labelledby="h-designs" hidden>
+      <h2 id="h-designs">Design photos <span class="count" id="designCount"></span></h2>
+      <div id="designList" class="photo-grid"></div>
+    </section>
+
+    <section id="tab-ideas" class="tab" aria-labelledby="h-ideas" hidden>
+      <h2 id="h-ideas" class="sr-only">Ideas</h2>
+      <div class="season-picker" role="radiogroup" aria-label="Season" id="seasonPicker"></div>
+      <button id="newIdeaBtn" class="btn btn-primary btn-big" type="button"><span aria-hidden="true">✦</span> New idea</button>
+      <div id="currentIdea" aria-live="polite"></div>
+      <h3 class="section-title" id="savedTitle" hidden>Saved ideas</h3>
+      <div id="savedIdeas" class="list"></div>
+    </section>
+
+    <section id="tab-history" class="tab" aria-labelledby="h-history" hidden>
+      <h2 id="h-history">History</h2>
+      <div id="historyBody"></div>
+    </section>
+  </main>
+
+  <button id="fab" class="fab" type="button" aria-label="Add">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
+  </button>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button type="button" data-tab="polishes" aria-label="Polishes">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2.5" width="6" height="7" rx="1.5"/><path d="M7.5 10.5h9a2 2 0 0 1 2 2V19a2.5 2.5 0 0 1-2.5 2.5H8A2.5 2.5 0 0 1 5.5 19v-6.5a2 2 0 0 1 2-2Z"/></svg>
+      <span>Polishes</span>
+    </button>
+    <button type="button" data-tab="designs" aria-label="Designs">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="3"/><circle cx="9" cy="10.5" r="1.8"/><path d="m4.5 18 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
+      <span>Designs</span>
+    </button>
+    <button type="button" data-tab="ideas" aria-label="Ideas">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5Z"/><path d="M19 16.5c.25 1.7 1 2.5 2.5 2.75-1.5.25-2.25 1-2.5 2.75-.25-1.75-1-2.5-2.5-2.75 1.5-.25 2.25-1 2.5-2.75Z"/></svg>
+      <span>Ideas</span>
+    </button>
+    <button type="button" data-tab="history" aria-label="History">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16"/><rect x="5.5" y="12" width="3" height="6" rx="1"/><rect x="10.5" y="7" width="3" height="11" rx="1"/><rect x="15.5" y="10" width="3" height="8" rx="1"/></svg>
+      <span>History</span>
+    </button>
+  </nav>
+
+  <!-- Polish sheet -->
+  <dialog id="polishDialog" class="sheet" aria-labelledby="polishDialogTitle">
+    <form id="polishForm" method="dialog" novalidate>
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="polishDialogTitle">New polish</h2>
+
+      <div class="color-row">
+        <span id="pCapPreview" class="cap cap-xl" style="--c:#B0245A" aria-hidden="true"></span>
+        <div class="field grow">
+          <label for="pName">Name</label>
+          <input id="pName" type="text" maxlength="60" autocomplete="off" placeholder="e.g. Burgundy Velvet" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="pColor">Color</label>
+        <input id="pColor" type="color" value="#B0245A">
+      </div>
+
+      <fieldset class="field">
+        <legend>Finish</legend>
+        <div class="chips" id="pFinish"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Seasons</legend>
+        <div class="chips" id="pSeasons"></div>
+      </fieldset>
+
+      <label class="toggle">
+        <input id="pBase" type="checkbox">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="toggle-text"><b>Base</b> <small>Good under French tips and gems</small></span>
+      </label>
+
+      <p class="form-error" id="polishError" role="alert"></p>
+
+      <div class="sheet-actions">
+        <button class="btn btn-primary" type="submit" value="save">Save polish</button>
+        <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+        <button class="btn btn-danger" type="button" id="polishDelete" hidden>Delete polish</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Design sheet -->
+  <dialog id="designDialog" class="sheet" aria-labelledby="designDialogTitle">
+    <form id="designForm" method="dialog" novalidate>
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="designDialogTitle">New design</h2>
+
+      <div class="photo-pick">
+        <div id="dPreview" class="photo-preview"></div>
+        <div class="photo-buttons">
+          <button type="button" class="btn btn-secondary" id="dCamBtn">📷 Take photo</button>
+          <button type="button" class="btn btn-secondary" id="dLibBtn">🖼️ Choose photo</button>
+        </div>
+        <input id="dCam" type="file" accept="image/*" capture="environment" hidden>
+        <input id="dLib" type="file" accept="image/*" hidden>
+      </div>
+
+      <fieldset class="field">
+        <legend>Design type</legend>
+        <div class="chips" id="dType"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Number of colors</legend>
+        <div class="chips" id="dColors"></div>
+      </fieldset>
+
+      <fieldset class="field" id="dFingerField" hidden>
+        <legend id="dFingerLegend">Which fingers?</legend>
+        <div class="hands-pick" id="dFingers"></div>
+      </fieldset>
+
+      <p class="form-error" id="designError" role="alert"></p>
+
+      <div class="sheet-actions">
+        <button class="btn btn-primary" type="submit" value="save">Save design</button>
+        <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+        <button class="btn btn-danger" type="button" id="designDelete" hidden>Delete design</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Worn sheet -->
+  <dialog id="wornDialog" class="sheet" aria-labelledby="wornTitle">
+    <form id="wornForm" method="dialog" novalidate>
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="wornTitle">When did you wear it?</h2>
+      <div class="field">
+        <label for="wornDate">Date</label>
+        <input id="wornDate" type="date" required>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn btn-primary" type="submit" value="save">Log it</button>
+        <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Backup sheet -->
+  <dialog id="backupDialog" class="sheet" aria-labelledby="backupTitle">
+    <form method="dialog">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="backupTitle">Back up your data</h2>
+      <p class="muted">Everything stays on this phone. Save a backup file now and then, or use one to move to a new phone.</p>
+      <div class="sheet-actions">
+        <button class="btn btn-primary" type="button" id="exportBtn">Export backup</button>
+        <button class="btn btn-secondary" type="button" id="importBtn">Import backup</button>
+        <button class="btn btn-ghost" type="button" data-close>Close</button>
+      </div>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
