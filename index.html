@@ -134,19 +134,23 @@
         <input id="dLib" type="file" accept="image/*" hidden>
       </div>
 
+      <p class="retag-note" id="dRetagNote" role="note" hidden></p>
+
       <fieldset class="field">
-        <legend>Design type</legend>
-        <div class="chips" id="dType"></div>
+        <legend>Main nail</legend>
+        <div class="chips" id="dMain"></div>
       </fieldset>
+
+      <fieldset class="field">
+        <legend>Decorations <small class="muted">(pick any)</small></legend>
+        <div class="chips" id="dDecor"></div>
+      </fieldset>
+
+      <div id="dDecorFingers"></div>
 
       <fieldset class="field">
         <legend>Number of colors</legend>
         <div class="chips" id="dColors"></div>
-      </fieldset>
-
-      <fieldset class="field" id="dFingerField" hidden>
-        <legend id="dFingerLegend">Which fingers?</legend>
-        <div class="hands-pick" id="dFingers"></div>
       </fieldset>
 
       <p class="form-error" id="designError" role="alert"></p>

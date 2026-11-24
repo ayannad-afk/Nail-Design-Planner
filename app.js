@@ -5,7 +5,14 @@
   const SEASONS = ['fall', 'winter', 'spring', 'summer'];
   const SEASON_LABEL = { fall: 'Fall', winter: 'Winter', spring: 'Spring', summer: 'Summer' };
   const FINISHES = { creme: 'Crème', shimmer: 'Shimmer', glitter: 'Glitter', matte: 'Matte', sheer: 'Sheer' };
-  const TYPES = { french: 'French tip', gems: 'Gems on top', accent: 'Accent nail', solid: 'Solid' };
+  // Main nail: exactly one per design. Decorations: any number, each on its own fingers.
+  const MAINS = { solid: 'Solid', french: 'French tip' };
+  const DECOR = { gems: 'Gems on top', dots: 'Polka dots', stripes: 'Stripes', deer: 'Deer print', croc: 'Alligator' };
+  const DECOR_LINE = { gems: 'Gems', dots: 'Polka dots', stripes: 'Stripes', deer: 'Deer print', croc: 'Alligator' };
+  const DECOR_LOWER = { gems: 'gems', dots: 'polka dots', stripes: 'stripes', deer: 'deer print', croc: 'alligator' };
+  const DECOR_WHERE = { gems: 'do the gems go', dots: 'do the polka dots go', stripes: 'do the stripes go', deer: 'does the deer print go', croc: 'does the alligator print go' };
+  // Older versions only — used to read saved ideas and old backups.
+  const OLD_TYPES = { french: 'French tip', gems: 'Gems on top', accent: 'Accent nail', solid: 'Solid' };
   const FINGERS = ['L pinky', 'L ring', 'L middle', 'L index', 'L thumb', 'R thumb', 'R index', 'R middle', 'R ring', 'R pinky'];
   const FINGER_SHORT = ['Pinky', 'Ring', 'Middle', 'Index', 'Thumb', 'Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
   const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -47,6 +54,52 @@
   };
   if (!SEASONS.includes(state.season)) state.season = currentSeason();
   if (!['polishes', 'designs', 'ideas', 'history'].includes(state.tab)) state.tab = 'polishes';
+
+  // ---------- fingers ----------
+  function cleanFingers(f) {
+    return [...new Set((Array.isArray(f) ? f : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 9))].sort((a, b) => a - b);
+  }
+  // [1, 8] -> "ring fingers"; [3] -> "left index"; all -> "all nails"
+  const FINGER_NAMES = ['pinky', 'ring', 'middle', 'index', 'thumb'];
+  const FINGER_PAIRS = { pinky: 'pinkies', ring: 'ring fingers', middle: 'middle fingers', index: 'index fingers', thumb: 'thumbs' };
+  function fingerPhrase(fingers, all) {
+    if (all || fingers.length === 10) return 'all nails';
+    const parts = [];
+    FINGER_NAMES.forEach((name, k) => {
+      const L = fingers.includes(k), R = fingers.includes(9 - k);
+      if (L && R) parts.push(FINGER_PAIRS[name]);
+      else if (L) parts.push(`left ${name}`);
+      else if (R) parts.push(`right ${name}`);
+    });
+    if (!parts.length) return 'no nails';
+    return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  }
+  const onFinger = (dec, i) => dec.all || dec.fingers.includes(i);
+
+  // ---------- design shape ----------
+  // A design is { id, num, colors, main: 'solid'|'french'|null, decor: [{ kind, all, fingers }], needsRetag?, oldTags? }.
+  // Older versions stored a single `type`. Convert those; "accent nail" no longer exists, so those
+  // photos keep their other tags (photo, number, colors) and are flagged so the user re-tags them.
+  function migrateDesign(d) {
+    if (!d || typeof d !== 'object' || !('type' in d)) return d;
+    const fingers = cleanFingers(d.fingers);
+    const out = { id: d.id, num: d.num, colors: d.colors, createdAt: d.createdAt, main: null, decor: [] };
+    if (d.type === 'solid' || d.type === 'french') out.main = d.type;
+    else if (d.type === 'gems' && fingers.length) { out.main = 'solid'; out.decor = [{ kind: 'gems', all: false, fingers }]; }
+    else {
+      out.needsRetag = true;
+      out.oldTags = `${OLD_TYPES[d.type] || 'Old tag'}${fingers.length ? ` on ${fingerPhrase(fingers)}` : ''}`;
+    }
+    return out;
+  }
+  if (state.designs.some((d) => d && 'type' in d)) {
+    state.designs = state.designs.map(migrateDesign);
+    persist('designs');
+  }
+  function designLabel(d) {
+    if (!d.main) return 'Needs new tags';
+    return [MAINS[d.main], ...d.decor.map((x) => DECOR_LOWER[x.kind])].join(' + ');
+  }
 
   // ---------- IndexedDB for photos ----------
   const photos = new Map();
@@ -114,17 +167,68 @@
   let svgSeq = 0;
   const FINGER_GEOM = (() => {
     const L = [
-      { cx: 26, top: 60, rot: -10, w: 20, h: 22 },
-      { cx: 53, top: 36, rot: -4, w: 22, h: 24 },
-      { cx: 82, top: 26, rot: 0, w: 23, h: 25 },
-      { cx: 111, top: 38, rot: 5, w: 22, h: 24 },
-      { cx: 136, top: 96, rot: 32, w: 25, h: 24 },
+      { cx: 26, top: 60, rot: -10, w: 20, h: 27 },
+      { cx: 53, top: 36, rot: -4, w: 22, h: 30 },
+      { cx: 82, top: 26, rot: 0, w: 23, h: 31 },
+      { cx: 111, top: 38, rot: 5, w: 22, h: 30 },
+      { cx: 136, top: 96, rot: 32, w: 25, h: 27 },
     ];
     const R = L.map((f) => ({ ...f, cx: 360 - f.cx, rot: -f.rot })).reverse();
     return [...L, ...R];
   })();
   const nailPath = (x, y, w, h) => { const r = w / 2; return `M${x},${y + h}L${x},${y + r}A${r},${r} 0 0 1 ${x + w},${y + r}L${x + w},${y + h}Q${x + r},${y + h + 3} ${x},${y + h}Z`; };
 
+  // Patterns drawn on top of the main nail, clipped to the nail shape. Kept bold and simple so
+  // they read at phone size.
+  const PATTERN_ORDER = ['dots', 'stripes', 'deer', 'croc'];
+  function patternSVG(kind, color, nx, ny, w, h, clip, p) {
+    const c = safeColor(color);
+    let s = '';
+    if (kind === 'dots') {
+      // evenly spaced round dots (a quincunx)
+      [[0.28, 0.28], [0.72, 0.28], [0.5, 0.5], [0.28, 0.72], [0.72, 0.72]].forEach(([fx, fy]) => {
+        s += `<circle cx="${nx + w * fx}" cy="${ny + h * fy}" r="${w * 0.12}" fill="${c}"/>`;
+      });
+    } else if (kind === 'stripes') {
+      // straight vertical lines
+      [0.3, 0.7].forEach((fx) => {
+        s += `<rect x="${nx + w * fx - w * 0.08}" y="${ny - 2}" width="${w * 0.16}" height="${h + 6}" fill="${c}"/>`;
+      });
+    } else if (kind === 'deer') {
+      // fawn spots: small, soft, irregular spots
+      [[0.3, 0.24, 0.15, 0.1, 20], [0.7, 0.36, 0.12, 0.085, -15], [0.38, 0.52, 0.11, 0.08, 35], [0.72, 0.66, 0.14, 0.09, 8], [0.32, 0.8, 0.1, 0.07, -30]]
+        .forEach(([fx, fy, rx, ry, rot]) => {
+          const x = nx + w * fx, y = ny + h * fy;
+          s += `<ellipse cx="${x}" cy="${y}" rx="${w * rx}" ry="${w * ry}" transform="rotate(${rot} ${x} ${y})" fill="${c}"/>`;
+        });
+      s = `<g filter="url(#${p}soft)" opacity=".95">${s}</g>`;
+    } else if (kind === 'croc') {
+      // croc print: uneven, rounded, blocky scales; the main nail color shows in the seams
+      const widths = [0.52, 0.34, 0.44, 0.38, 0.5];
+      const heights = [0.17, 0.22, 0.19, 0.24, 0.18, 0.21];
+      const gap = 1.3;
+      let y = ny - 2;
+      for (let r = 0; r < heights.length && y < ny + h; r++) {
+        const sh = h * heights[r];
+        let k = r * 2;
+        for (let x = nx - 1 - (r % 2 ? w * 0.2 : 0); x < nx + w; k++) {
+          const sw = w * widths[k % widths.length];
+          s += `<rect x="${x}" y="${y}" width="${sw}" height="${sh}" rx="${Math.min(sw, sh) * 0.45}" fill="${c}" stroke="rgba(0,0,0,.25)" stroke-width=".7"/>`;
+          x += sw + gap;
+        }
+        y += sh + gap;
+      }
+    }
+    return `<g clip-path="url(#${clip})">${s}</g>`;
+  }
+  function gemsSVG(color, cx, ny, w, h, p) {
+    return [[0.3, 0.13], [0.55, 0.17], [0.8, 0.13]].map(([t, rf]) => {
+      const r = w * rf, y = ny + h * t;
+      return `<circle cx="${cx}" cy="${y}" r="${r}" fill="${safeColor(color)}" stroke="#fff" stroke-width=".8"/><circle cx="${cx}" cy="${y}" r="${r}" fill="url(#${p}gs)"/>`;
+    }).join('');
+  }
+
+  // nails: 10 x { color, finish, tip?, deco?: [{ kind, color }], gems?: true (older saved ideas) }
   function handSVG(nails, label) {
     const p = 'h' + (++svgSeq);
     let fingers = '';
@@ -134,29 +238,35 @@
       const rot = `rotate(${f.rot} ${f.cx} 168)`;
       fingers += `<rect transform="${rot}" x="${f.cx - fw / 2}" y="${f.top}" width="${fw}" height="${172 - f.top}" rx="${fw / 2}" class="skin"/>`;
       const n = nails[i] || {};
+      const deco = Array.isArray(n.deco) ? n.deco : [];
       const nx = f.cx - f.w / 2;
       const ny = f.top + 4;
       const d = nailPath(nx, ny, f.w, f.h);
-      let g = `<path d="${d}" fill="${safeColor(n.color, '#F3DDE4')}" stroke="rgba(58,20,38,.25)" stroke-width="1"/>`;
+      const clip = `${p}c${i}`;
+      let g = `<clipPath id="${clip}"><path d="${d}"/></clipPath>`;
+      g += `<path d="${d}" fill="${safeColor(n.color, '#F3DDE4')}" stroke="rgba(58,20,38,.25)" stroke-width="1"/>`;
       if (n.tip && HEX.test(n.tip)) {
-        const th = f.h * 0.36;
-        g += `<clipPath id="${p}c${i}"><path d="${d}"/></clipPath><path clip-path="url(#${p}c${i})" d="M${nx - 2},${ny - 2}H${nx + f.w + 2}V${ny + th + 3}Q${f.cx},${ny + th - 7} ${nx - 2},${ny + th + 3}Z" fill="${n.tip}"/>`;
+        const th = f.h * 0.32;
+        g += `<path clip-path="url(#${clip})" d="M${nx - 2},${ny - 2}H${nx + f.w + 2}V${ny + th + 3}Q${f.cx},${ny + th - 7} ${nx - 2},${ny + th + 3}Z" fill="${n.tip}"/>`;
       }
+      PATTERN_ORDER.forEach((k) => {
+        const x = deco.find((q) => q.kind === k);
+        if (x) g += patternSVG(k, x.color, nx, ny, f.w, f.h, clip, p);
+      });
       g += `<path d="${d}" fill="url(#${p}gl)"/>`;
-      const sx = nx + f.w * 0.3, sy = ny + f.h * 0.42;
-      g += `<ellipse cx="${sx}" cy="${sy}" rx="${f.w * 0.1}" ry="${f.h * 0.24}" fill="#fff" opacity="${n.finish === 'matte' ? 0.45 : 0.88}" transform="rotate(-8 ${sx} ${sy})"/>`;
-      g += `<circle cx="${nx + f.w * 0.44}" cy="${ny + f.h * 0.14}" r="1.3" fill="#fff" opacity=".8"/>`;
-      if (n.gems) {
-        [[0.34, 3], [0.58, 4], [0.84, 3]].forEach(([t, r]) => {
-          g += `<circle cx="${f.cx + f.w * 0.06}" cy="${ny + f.h * t}" r="${r}" fill="url(#${p}gem)" stroke="#fff" stroke-width=".7"/>`;
-        });
-      }
+      const sx = nx + f.w * 0.24, sy = ny + f.h * 0.4;
+      g += `<ellipse cx="${sx}" cy="${sy}" rx="${f.w * 0.09}" ry="${f.h * 0.22}" fill="#fff" opacity="${n.finish === 'matte' ? 0.45 : 0.85}" transform="rotate(-8 ${sx} ${sy})"/>`;
+      g += `<circle cx="${nx + f.w * 0.44}" cy="${ny + f.h * 0.12}" r="1.3" fill="#fff" opacity=".8"/>`;
+      const gem = deco.find((q) => q.kind === 'gems');
+      if (gem) g += gemsSVG(gem.color, f.cx + f.w * 0.08, ny, f.w, f.h, p);
+      else if (n.gems) g += gemsSVG('#D4A24C', f.cx + f.w * 0.08, ny, f.w, f.h, p);
       tops += `<g transform="${rot}">${g}</g>`;
     });
     return `<svg class="hand" viewBox="0 20 360 150" role="img" aria-label="${esc(label || 'Nail idea drawing')}">
       <defs>
         <linearGradient id="${p}gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".45" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
-        <radialGradient id="${p}gem" cx=".35" cy=".35" r=".7"><stop offset="0" stop-color="#fff"/><stop offset=".4" stop-color="#F6DFA6"/><stop offset="1" stop-color="#D4A24C"/></radialGradient>
+        <radialGradient id="${p}gs" cx=".32" cy=".3" r=".75"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".35" stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+        <filter id="${p}soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation=".45"/></filter>
       </defs>
       ${fingers}
       <rect x="6" y="122" width="134" height="60" rx="28" class="skin"/>
@@ -257,6 +367,9 @@
   }
 
   // ---------- designs ----------
+  function decorSummary(d) {
+    return d.decor.map((x) => `${DECOR_LINE[x.kind]}: ${fingerPhrase(x.fingers, x.all)}`);
+  }
   function renderDesigns() {
     const list = $('#designList');
     $('#designCount').textContent = state.designs.length || '';
@@ -264,14 +377,20 @@
       list.innerHTML = emptyHTML(ART.photo, 'No design photos yet.', 'Tap + to add one from your camera or photos.');
       return;
     }
-    list.innerHTML = [...state.designs].sort((a, b) => b.num - a.num).map((d) => {
+    const retag = state.designs.filter((d) => d.needsRetag).length;
+    const banner = retag
+      ? `<div class="notice retag-banner"><b>${retag} photo${retag === 1 ? ' needs' : 's need'} new tags</b><p>“Accent nail” was removed. Tap each photo marked “Needs new tags” to pick new ones. Until then, ideas skip ${retag === 1 ? 'it' : 'them'}.</p></div>`
+      : '';
+    list.innerHTML = banner + [...state.designs].sort((a, b) => b.num - a.num).map((d) => {
       const src = photos.get(d.id);
-      const fingers = d.fingers.length ? ` · ${d.fingers.length} ${d.type === 'gems' ? 'with gems' : 'accent'}` : '';
-      return `<button type="button" class="card design-card" data-id="${esc(d.id)}" aria-label="Edit photo ${d.num}">
+      const details = d.needsRetag
+        ? `<span class="retag-badge">Needs new tags</span>`
+        : `<span>${d.colors} color${d.colors === 1 ? '' : 's'}</span>${decorSummary(d).map((s) => `<span>${esc(s)}</span>`).join('')}`;
+      return `<button type="button" class="card design-card${d.needsRetag ? ' needs-retag' : ''}" data-id="${esc(d.id)}" aria-label="Edit photo ${d.num}">
         ${src ? `<img src="${esc(src)}" alt="Design photo ${d.num}" loading="lazy">` : '<span class="no-photo">Photo missing</span>'}
         <span class="design-meta">
-          <b><span class="num-badge">#${d.num}</span>${esc(TYPES[d.type])}</b>
-          <span>${d.colors} color${d.colors === 1 ? '' : 's'}${fingers}</span>
+          <b><span class="num-badge">#${d.num}</span>${esc(d.needsRetag ? 'Old tags' : designLabel(d))}</b>
+          ${details}
         </span>
       </button>`;
     }).join('');
@@ -280,19 +399,33 @@
   let editingDesign = null;
   let pendingPhoto = null;
   function buildDesignForm() {
-    $('#dType').innerHTML = Object.entries(TYPES).map(([k, v]) =>
-      `<label class="chip"><input type="radio" name="dtype" value="${k}"><span>${v}</span></label>`).join('');
+    $('#dMain').innerHTML = Object.entries(MAINS).map(([k, v]) =>
+      `<label class="chip"><input type="radio" name="dmain" value="${k}"><span>${v}</span></label>`).join('');
+    $('#dDecor').innerHTML = Object.entries(DECOR).map(([k, v]) =>
+      `<label class="chip"><input type="checkbox" name="ddecor" value="${k}"><span>${v}</span></label>`).join('');
     $('#dColors').innerHTML = [1, 2, 3, 4, 5].map((n) =>
       `<label class="chip"><input type="radio" name="dcolors" value="${n}"><span>${n}</span></label>`).join('');
-    const row = (label, idxs) => `<div class="hand-row"><b>${label}</b>${idxs.map((i) =>
-      `<label class="chip"><input type="checkbox" name="finger" value="${i}" aria-label="${FINGERS[i]}"><span>${FINGER_SHORT[i]}</span></label>`).join('')}</div>`;
-    $('#dFingers').innerHTML = row('Left', [0, 1, 2, 3, 4]) + row('Right', [5, 6, 7, 8, 9]);
+    const row = (kind, label, idxs) => `<div class="hand-row"><b>${label}</b>${idxs.map((i) =>
+      `<label class="chip"><input type="checkbox" name="f-${kind}" data-finger value="${i}" aria-label="${DECOR_LINE[kind]} on ${FINGERS[i]}"><span>${FINGER_SHORT[i]}</span></label>`).join('')}</div>`;
+    $('#dDecorFingers').innerHTML = Object.keys(DECOR).map((kind) => `
+      <fieldset class="field finger-block" data-kind="${kind}" hidden>
+        <legend>Where ${DECOR_WHERE[kind]}?</legend>
+        <label class="chip chip-all"><input type="checkbox" name="f-${kind}" data-all value="all"><span>All nails</span></label>
+        <div class="hands-pick">${row(kind, 'Left', [0, 1, 2, 3, 4])}${row(kind, 'Right', [5, 6, 7, 8, 9])}</div>
+      </fieldset>`).join('');
   }
-  function updateFingerField() {
-    const t = ($('#dType input:checked') || {}).value;
-    const show = t === 'accent' || t === 'gems';
-    $('#dFingerField').hidden = !show;
-    $('#dFingerLegend').textContent = t === 'gems' ? 'Which fingers get gems?' : 'Which fingers get the accent?';
+  function updateDecorBlocks() {
+    const on = new Set($$('#dDecor input:checked').map((i) => i.value));
+    $$('.finger-block').forEach((b) => { b.hidden = !on.has(b.dataset.kind); });
+  }
+  // "All nails" and specific fingers are either/or within one decoration.
+  function onFingerChange(e) {
+    const t = e.target;
+    const block = t.closest('.finger-block');
+    $('#designError').textContent = '';
+    if (!block || !t.checked) return;
+    if (t.hasAttribute('data-all')) $$('[data-finger]', block).forEach((i) => { i.checked = false; });
+    else $('[data-all]', block).checked = false;
   }
   function showPreview(src) {
     const box = $('#dPreview');
@@ -304,12 +437,23 @@
     pendingPhoto = null;
     $('#designDialogTitle').textContent = d ? `Edit photo #${d.num}` : 'New design';
     showPreview(d ? photos.get(d.id) : null);
-    $$('#dType input').forEach((i) => { i.checked = d ? i.value === d.type : false; });
+    const note = $('#dRetagNote');
+    note.hidden = !(d && d.needsRetag);
+    note.textContent = d && d.needsRetag
+      ? `This photo was tagged “${d.oldTags || 'Accent nail'}”. Accent nail is gone, so pick a main nail and any decorations below. The photo and number of colors are kept.`
+      : '';
+    $$('#dMain input').forEach((i) => { i.checked = d ? i.value === d.main : i.value === 'solid'; });
+    const decor = d ? d.decor : [];
+    $$('#dDecor input').forEach((i) => { i.checked = decor.some((x) => x.kind === i.value); });
+    $$('.finger-block').forEach((b) => {
+      const x = decor.find((q) => q.kind === b.dataset.kind);
+      $('[data-all]', b).checked = !!(x && x.all);
+      $$('[data-finger]', b).forEach((i) => { i.checked = !!(x && !x.all && x.fingers.includes(Number(i.value))); });
+    });
     $$('#dColors input').forEach((i) => { i.checked = Number(i.value) === (d ? d.colors : 1); });
-    $$('#dFingers input').forEach((i) => { i.checked = d ? d.fingers.includes(Number(i.value)) : false; });
     $('#designDelete').hidden = !d;
     $('#designError').textContent = '';
-    updateFingerField();
+    updateDecorBlocks();
     $('#designDialog').showModal();
   }
   function readImage(file) {
@@ -344,22 +488,29 @@
   }
   async function saveDesign(e) {
     e.preventDefault();
-    const type = ($('#dType input:checked') || {}).value;
-    const colors = Number(($('#dColors input:checked') || {}).value || 1);
-    let fingers = $$('#dFingers input:checked').map((i) => Number(i.value));
-    const hasPhoto = pendingPhoto || (editingDesign && photos.get(editingDesign.id));
     const err = $('#designError');
+    const main = ($('#dMain input:checked') || {}).value;
+    const colors = Number(($('#dColors input:checked') || {}).value || 1);
+    const hasPhoto = pendingPhoto || (editingDesign && photos.get(editingDesign.id));
     if (!hasPhoto) { err.textContent = 'Add a photo first.'; return; }
-    if (!type) { err.textContent = 'Pick a design type.'; return; }
-    if (type === 'accent' || type === 'gems') {
-      if (!fingers.length) { err.textContent = type === 'gems' ? 'Tap the fingers that get gems.' : 'Tap the fingers that get the accent.'; return; }
-      if (type === 'accent' && fingers.length === 10) { err.textContent = 'Leave at least one finger without the accent.'; return; }
-    } else fingers = [];
+    if (!MAINS[main]) { err.textContent = 'Pick the main nail: Solid or French tip.'; return; }
+    const decor = [];
+    for (const i of $$('#dDecor input:checked')) {
+      const kind = i.value;
+      const block = $(`.finger-block[data-kind="${kind}"]`);
+      const fingers = $$('[data-finger]:checked', block).map((x) => Number(x.value));
+      const all = $('[data-all]', block).checked || fingers.length === 10;
+      if (!all && !fingers.length) { err.textContent = `Where ${DECOR_WHERE[kind]}? Tap fingers, or pick All nails.`; return; }
+      decor.push({ kind, all, fingers: all ? [] : fingers });
+    }
     let d = editingDesign;
-    if (d) Object.assign(d, { type, colors, fingers });
-    else {
+    if (d) {
+      Object.assign(d, { main, decor, colors });
+      delete d.needsRetag;
+      delete d.oldTags;
+    } else {
       state.seq += 1;
-      d = { id: uid(), num: state.seq, type, colors, fingers, createdAt: new Date().toISOString() };
+      d = { id: uid(), num: state.seq, main, decor, colors, createdAt: new Date().toISOString() };
       state.designs.push(d);
     }
     if (pendingPhoto) {
@@ -385,60 +536,92 @@
   }
 
   // ---------- idea rules ----------
+  // 1. Main nail: French tip = a base-tagged polish + a season polish for the tip (different colors);
+  //    solid = one season polish.
+  // 2. Decorations, only on their tagged fingers, each in a season polish whose color differs from
+  //    every color on the main nail underneath.
+  // If the polishes can't satisfy that, say what to add instead of bending a rule.
   const snap = (p) => ({ color: p.color, name: p.name, finish: p.finish });
-  const line = (label, p, why) => ({ label, text: `${p.name} (${why})`, color: p.color, finish: p.finish });
+  const line = (label, p, why, where) => ({ label, text: `${p.name} (${why})${where ? `, ${where}` : ''}`, color: p.color, finish: p.finish });
+  const colorKey = (p) => p.color.toUpperCase();
+  const sameColor = (a, b) => colorKey(a) === colorKey(b);
+  const distinctColors = (list) => new Set(list.map(colorKey)).size;
+
+  function shortfall(d, S, B) {
+    const needSeason = 1 + (d.decor.length ? 1 : 0);
+    const needBase = d.main === 'french' && !B.length;
+    const have = d.main === 'french' && B.length
+      ? Math.max(...B.map((b) => distinctColors(S.filter((p) => !sameColor(p, b)))))
+      : distinctColors(S);
+    const short = Math.max(0, needSeason - have);
+    return { ok: false, design: d, needBase, short, have, score: short + (needBase ? 1 : 0) };
+  }
+
   function fillDesign(d, season) {
     const sl = SEASON_LABEL[season].toLowerCase();
     const S = state.polishes.filter((p) => p.seasons.includes(season));
     const B = state.polishes.filter((p) => p.base);
-    const layout = { label: 'Layout', text: `${TYPES[d.type]}, photo #${d.num}` };
-    const fingerNames = d.fingers.map((i) => FINGERS[i]).join(', ');
-    const fail = (need) => ({ ok: false, design: d, msg: need });
-    let nails, lines;
+    const hasDecor = d.decor.length > 0;
+    let main = null;
+    if (d.main === 'french') {
+      for (const b of shuffle(B)) {
+        const tips = S.filter((t) => !sameColor(t, b));
+        if (!tips.length) continue;
+        // any tip works if at least two season colors differ from the base
+        if (hasDecor && distinctColors(tips) < 2) continue;
+        main = { base: b, tip: pick(tips) };
+        break;
+      }
+    } else if (S.length && (!hasDecor || distinctColors(S) >= 2)) {
+      main = { solid: pick(S) };
+    }
+    if (!main) return shortfall(d, S, B);
 
-    if (d.type === 'french') {
-      const pairs = [];
-      for (const b of B) for (const t of S) if (b.id !== t.id) pairs.push([b, t]);
-      if (!pairs.length) return fail(`Photo #${d.num} is a French tip. It needs one polish tagged Base and a different polish tagged ${SEASON_LABEL[season]}.`);
-      const [b, t] = pick(pairs);
-      nails = Array.from({ length: 10 }, () => ({ ...snap(b), tip: t.color }));
-      lines = [line('Base', b, 'tagged base'), line('Tip', t, `tagged ${sl}`), layout];
-    } else if (d.type === 'gems') {
-      const pool = state.polishes.filter((p) => p.base || p.seasons.includes(season));
-      if (!pool.length) return fail(`Photo #${d.num} has gems on top. It needs a polish tagged Base or ${SEASON_LABEL[season]}.`);
-      if (!d.fingers.length) return fail(`Photo #${d.num} doesn't say which fingers get gems. Tap it in Designs to choose.`);
-      const p = pick(pool);
-      const why = [p.base ? 'base' : null, p.seasons.includes(season) ? sl : null].filter(Boolean).join(' + ');
-      nails = Array.from({ length: 10 }, (_, i) => ({ ...snap(p), gems: d.fingers.includes(i) }));
-      lines = [line('Color', p, `tagged ${why}`), { label: 'Gems', text: `${fingerNames} (tagged fingers)`, gem: true }, layout];
-    } else if (d.type === 'accent') {
-      if (S.length < 2) return fail(`Photo #${d.num} is an accent nail. It needs two different polishes tagged ${SEASON_LABEL[season]}.`);
-      if (!d.fingers.length) return fail(`Photo #${d.num} doesn't say which fingers get the accent. Tap it in Designs to choose.`);
-      const [a, r] = shuffle(S);
-      nails = Array.from({ length: 10 }, (_, i) => snap(d.fingers.includes(i) ? a : r));
-      lines = [
-        { label: 'Accent', text: `${a.name} (tagged ${sl}) on ${fingerNames}`, color: a.color, finish: a.finish },
-        line('Rest', r, `tagged ${sl}`),
-        layout,
-      ];
-    } else {
-      if (!S.length) return fail(`Photo #${d.num} is a solid color. It needs a polish tagged ${SEASON_LABEL[season]}.`);
-      const p = pick(S);
-      nails = Array.from({ length: 10 }, () => snap(p));
-      lines = [line('Color', p, `tagged ${sl}`), layout];
-    }
-    return { ok: true, idea: { season, designId: d.id, designNum: d.num, type: d.type, nails, lines } };
+    const under = main.solid ? [main.solid] : [main.base, main.tip];
+    const pool = S.filter((p) => under.every((u) => !sameColor(p, u)));
+    const picks = d.decor.map((x) => ({ ...x, polish: pick(pool) }));
+    const mainNail = main.solid ? snap(main.solid) : { ...snap(main.base), tip: main.tip.color };
+    const nails = Array.from({ length: 10 }, (_, i) => ({
+      ...mainNail,
+      deco: picks.filter((x) => onFinger(x, i)).map((x) => ({ kind: x.kind, color: x.polish.color })),
+    }));
+    const lines = main.solid
+      ? [line('Color', main.solid, `tagged ${sl}`)]
+      : [line('Base', main.base, 'tagged base'), line('Tip', main.tip, `tagged ${sl}`)];
+    picks.forEach((x) => lines.push(line(DECOR_LINE[x.kind], x.polish, `tagged ${sl}`, fingerPhrase(x.fingers, x.all))));
+    lines.push({ label: 'Design', text: `${designLabel(d)}, photo #${d.num}` });
+    return { ok: true, idea: { season, designId: d.id, designNum: d.num, title: designLabel(d), nails, lines } };
   }
+
   function generateIdea() {
+    const season = state.season;
+    const SL = SEASON_LABEL[season], sl = SL.toLowerCase();
     if (!state.designs.length) return { ok: false, title: 'No design photos yet.', msg: 'Add one in Designs, then tap New idea.' };
+    const ready = state.designs.filter((d) => d.main && !d.needsRetag);
+    if (!ready.length) return { ok: false, title: 'Your photos need new tags.', msg: 'Open Designs and tap each photo marked “Needs new tags.”' };
     if (!state.polishes.length) return { ok: false, title: 'No polishes yet.', msg: 'Add a few in Polishes, then tap New idea.' };
-    let firstFail = null;
-    for (const d of shuffle(state.designs)) {
-      const r = fillDesign(d, state.season);
+    let best = null;
+    for (const d of shuffle(ready)) {
+      const r = fillDesign(d, season);
       if (r.ok) return r;
-      if (!firstFail) firstFail = r;
+      if (!best || r.score < best.score) best = r;
     }
-    return { ok: false, title: 'Not enough polishes for this one yet 💅', msg: `${firstFail.msg} Add one in Polishes and try again.` };
+    // Explain the closest design: what to add, and why if it's about colors differing.
+    const parts = [];
+    if (best.needBase) parts.push('a polish tagged Base');
+    if (best.short) parts.push(`${best.short} more ${sl} polish${best.short === 1 ? '' : 'es'}${best.have ? ' in a new color' : ''}`);
+    const why = best.short && best.have && best.design.decor.length
+      ? ' Decorations need a different color from the nail underneath.'
+      : best.short && best.have && best.design.main === 'french'
+        ? ' The tip needs a different color from the base.'
+        : '';
+    return {
+      ok: false,
+      title: 'Almost there! 💅',
+      msg: `Add ${parts.join(' and ')} to make this design.${why}`,
+      designId: best.design.id,
+      sub: `Photo #${best.design.num} · ${designLabel(best.design)} · ${SL}`,
+    };
   }
 
   // ---------- ideas UI ----------
@@ -450,9 +633,9 @@
   }
   function stageHTML(idea) {
     const src = photos.get(idea.designId);
-    const label = `${TYPES[idea.type]} idea for ${SEASON_LABEL[idea.season]}`;
+    const label = `${idea.title || OLD_TYPES[idea.type] || 'Nail'} idea for ${SEASON_LABEL[idea.season]}`;
     return `<div class="idea-stage">
-      <div class="idea-hand">${handSVG(idea.nails, label)}</div>
+      <button type="button" class="idea-hand" data-action="zoom" aria-label="Show the nail drawing bigger">${handSVG(idea.nails, label)}<span class="zoom-icon" aria-hidden="true">⤢</span></button>
       <figure class="idea-photo">
         ${src ? `<img src="${esc(src)}" alt="Inspiration photo ${idea.designNum}">` : '<span class="no-photo">Photo deleted</span>'}
         <figcaption>Photo #${idea.designNum}</figcaption>
@@ -471,7 +654,11 @@
       return;
     }
     if (!c.ok) {
-      box.innerHTML = `<div class="notice"><b>${esc(c.title)}</b><p>${esc(c.msg)}</p></div>`;
+      const src = c.designId && photos.get(c.designId);
+      box.innerHTML = `<div class="notice${src ? ' notice-photo' : ''}">
+        ${src ? `<img src="${esc(src)}" alt="">` : ''}
+        <div><b>${esc(c.title)}</b><p>${esc(c.msg)}</p>${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</div>
+      </div>`;
       return;
     }
     box.innerHTML = `<div class="card idea-card pop">
@@ -627,27 +814,43 @@
       base: !!p.base,
     };
   }
-  const cleanFingers = (f) => [...new Set((Array.isArray(f) ? f : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 9))];
-  function cleanDesign(d) {
-    if (!d || typeof d !== 'object' || !TYPES[d.type]) return null;
+  function cleanDesign(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if ('type' in raw && !OLD_TYPES[raw.type]) return null;
+    const d = migrateDesign(raw); // old backups use a single `type`
     const num = Number(d.num);
-    return {
-      id: str(d.id || uid(), 40), num: Number.isInteger(num) && num > 0 ? num : 0, type: d.type,
+    const out = {
+      id: str(d.id || uid(), 40), num: Number.isInteger(num) && num > 0 ? num : 0,
+      main: MAINS[d.main] ? d.main : null,
+      decor: [],
       colors: Math.min(5, Math.max(1, Number(d.colors) || 1)),
-      fingers: d.type === 'accent' || d.type === 'gems' ? cleanFingers(d.fingers) : [],
       createdAt: str(d.createdAt, 40),
     };
+    const seen = new Set();
+    (Array.isArray(d.decor) ? d.decor : []).forEach((x) => {
+      if (!x || !DECOR[x.kind] || seen.has(x.kind)) return;
+      const fingers = cleanFingers(x.fingers);
+      const all = !!x.all || fingers.length === 10;
+      if (!all && !fingers.length) return;
+      seen.add(x.kind);
+      out.decor.push({ kind: x.kind, all, fingers: all ? [] : fingers });
+    });
+    out.decor.sort((a, b) => Object.keys(DECOR).indexOf(a.kind) - Object.keys(DECOR).indexOf(b.kind));
+    if (d.needsRetag || !out.main) { out.needsRetag = true; out.oldTags = str(d.oldTags || 'Old tag', 80); }
+    return out;
   }
   function cleanIdea(i) {
-    if (!i || typeof i !== 'object' || !TYPES[i.type] || !SEASONS.includes(i.season) || !Array.isArray(i.nails)) return null;
+    if (!i || typeof i !== 'object' || !SEASONS.includes(i.season) || !Array.isArray(i.nails)) return null;
     const nails = Array.from({ length: 10 }, (_, k) => {
       const n = i.nails[k] || {};
       const o = { color: safeColor(n.color), name: str(n.name, 60), finish: FINISHES[n.finish] ? n.finish : 'creme' };
       if (HEX.test(n.tip)) o.tip = n.tip;
       if (n.gems) o.gems = true;
+      const deco = (Array.isArray(n.deco) ? n.deco : []).filter((x) => x && DECOR[x.kind] && HEX.test(x.color)).map((x) => ({ kind: x.kind, color: x.color }));
+      if (deco.length) o.deco = deco;
       return o;
     });
-    const lines = (Array.isArray(i.lines) ? i.lines : []).slice(0, 6).map((l) => {
+    const lines = (Array.isArray(i.lines) ? i.lines : []).slice(0, 10).map((l) => {
       const o = { label: str(l && l.label, 20), text: str(l && l.text, 200) };
       if (l && HEX.test(l.color)) { o.color = l.color; o.finish = FINISHES[l.finish] ? l.finish : 'creme'; }
       if (l && l.gem) o.gem = true;
@@ -655,7 +858,8 @@
     });
     const created = DATE_RE.test(str(i.createdAt).slice(0, 10)) ? str(i.createdAt, 40) : new Date().toISOString();
     return {
-      id: str(i.id || uid(), 40), createdAt: created, season: i.season, type: i.type,
+      id: str(i.id || uid(), 40), createdAt: created, season: i.season,
+      title: str(i.title || OLD_TYPES[i.type] || 'Nail', 120),
       designId: str(i.designId, 40), designNum: Number(i.designNum) || 0, nails, lines,
       worn: [...new Set((Array.isArray(i.worn) ? i.worn : []).filter((d) => DATE_RE.test(d)))],
     };
@@ -710,7 +914,8 @@
     });
     $('#designForm').addEventListener('submit', saveDesign);
     $('#designDelete').addEventListener('click', deleteDesign);
-    $('#dType').addEventListener('change', updateFingerField);
+    $('#dDecor').addEventListener('change', updateDecorBlocks);
+    $('#dDecorFingers').addEventListener('change', onFingerChange);
     $('#dCamBtn').addEventListener('click', () => $('#dCam').click());
     $('#dLibBtn').addEventListener('click', () => $('#dLib').click());
     $('#dCam').addEventListener('change', onPhotoChosen);
@@ -729,6 +934,13 @@
       renderCurrent();
     });
     $('#currentIdea').addEventListener('click', (e) => { if (e.target.closest('[data-action="save-current"]')) saveCurrent(); });
+    // tap a hand drawing to show it full width (tap again to put it back next to the photo)
+    $('#tab-ideas').addEventListener('click', (e) => {
+      const z = e.target.closest('[data-action="zoom"]');
+      if (!z) return;
+      const big = z.closest('.idea-stage').classList.toggle('zoomed');
+      z.setAttribute('aria-label', big ? 'Show the nail drawing smaller' : 'Show the nail drawing bigger');
+    });
     $('#savedIdeas').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
