@@ -412,6 +412,34 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 11px; }
 .finger-block .chip-all { display: block; margin-bottom: 8px; clear: both; }
 .finger-block .chip-all span { width: 100%; justify-content: center; }
 .chip-all input:checked + span { background: var(--gold); color: var(--ink); box-shadow: 0 3px 8px rgba(212, 162, 76, .45); }
+/* gem color: three big buttons, each with a swatch */
+.gem-picker { margin-top: 14px; }
+.gem-picker-title { display: block; margin: 0 0 8px 2px; }
+.gem-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gem-choice { position: relative; }
+.gem-choice input { position: absolute; opacity: 0; inset: 0; margin: 0; }
+.gem-choice span {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 84px; padding: 10px 4px; border-radius: 18px; background: #fff;
+  font-weight: 800; font-size: .88rem; text-align: center;
+  box-shadow: inset 0 0 0 2px var(--berry-soft);
+}
+.gem-choice input:checked + span { background: var(--blush); box-shadow: inset 0 0 0 3px var(--berry), 0 4px 10px rgba(176, 36, 90, .22); }
+.gem-choice input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+.gem-swatch {
+  display: inline-block; flex: none; width: 34px; height: 34px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(58, 20, 38, .25), 0 2px 4px rgba(58, 20, 38, .2);
+  position: relative;
+}
+.gem-swatch::after {
+  content: ""; position: absolute; top: 18%; left: 20%; width: 32%; height: 26%;
+  border-radius: 50%; background: rgba(255, 255, 255, .9);
+}
+.gem-silver { background: radial-gradient(circle at 35% 30%, #FFFFFF 0, #E4E6EC 30%, #A9AEBB 75%, #8A8F9C 100%); }
+.gem-gold { background: radial-gradient(circle at 35% 30%, #FFF6D8 0, #F6DFA6 30%, #D4A24C 70%, #A87A2C 100%); }
+.gem-multi { background: conic-gradient(#FF5C8A, #FFB347, #FFE66D, #7ED957, #3FA9F5, #B388FF, #FF5C8A); }
+.gem-sm { width: 26px; height: 26px; }
+
 .retag-note {
   margin: 0 0 14px; padding: 12px 14px; border-radius: 16px;
   background: var(--gold-soft); box-shadow: inset 0 0 0 2px var(--gold); font-weight: 700;

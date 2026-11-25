@@ -1,6 +1,6 @@
 // Caches every app file so Nail Design Planner works fully offline.
 // Bump CACHE when any file changes so phones pick up the new version.
-const CACHE = 'nail-planner-v4';
+const CACHE = 'nail-planner-v5';
 const FILES = [
   './',
   'index.html',

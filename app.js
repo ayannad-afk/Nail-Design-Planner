@@ -4,7 +4,13 @@
   // ---------- constants ----------
   const SEASONS = ['fall', 'winter', 'spring', 'summer'];
   const SEASON_LABEL = { fall: 'Fall', winter: 'Winter', spring: 'Spring', summer: 'Summer' };
-  const FINISHES = { creme: 'Crème', shimmer: 'Shimmer', glitter: 'Glitter', matte: 'Matte', sheer: 'Sheer' };
+  const FINISHES = { solid: 'Solid', shimmer: 'Shimmer', glitter: 'Glitter', matte: 'Matte', sheer: 'Sheer' };
+  const OLD_FINISH = 'creme'; // stored key before the finish was renamed to Solid (converted on load)
+  const finishKey = (f) => (f === OLD_FINISH ? 'solid' : FINISHES[f] ? f : 'solid');
+  // Gems have their own three colors, never taken from the polish list.
+  const GEMS = { silver: 'Silver', gold: 'Gold', multi: 'Multicolored' };
+  const GEM_FILLS = { silver: ['#C3C7D1', '#C3C7D1', '#C3C7D1'], gold: ['#D4A24C', '#D4A24C', '#D4A24C'], multi: ['#FF5C8A', '#3FA9F5', '#7ED957'] };
+  const gemKey = (g) => (GEMS[g] ? g : 'silver');
   // Main nail: exactly one per design. Decorations: any number, each on its own fingers.
   const MAINS = { solid: 'Solid', french: 'French tip' };
   const DECOR = { gems: 'Gems on top', dots: 'Polka dots', stripes: 'Stripes', deer: 'Deer print', croc: 'Alligator' };
@@ -85,7 +91,7 @@
     const fingers = cleanFingers(d.fingers);
     const out = { id: d.id, num: d.num, colors: d.colors, createdAt: d.createdAt, main: null, decor: [] };
     if (d.type === 'solid' || d.type === 'french') out.main = d.type;
-    else if (d.type === 'gems' && fingers.length) { out.main = 'solid'; out.decor = [{ kind: 'gems', all: false, fingers }]; }
+    else if (d.type === 'gems' && fingers.length) { out.main = 'solid'; out.decor = [{ kind: 'gems', all: false, fingers, gemColor: 'silver' }]; }
     else {
       out.needsRetag = true;
       out.oldTags = `${OLD_TYPES[d.type] || 'Old tag'}${fingers.length ? ` on ${fingerPhrase(fingers)}` : ''}`;
@@ -96,6 +102,21 @@
     state.designs = state.designs.map(migrateDesign);
     persist('designs');
   }
+  // One-time updates to saved data: old finish key -> 'solid'; gems with no color -> Silver.
+  (function migrateSaved() {
+    let p = false, i = false, d = false;
+    state.polishes.forEach((x) => { if (x.finish === OLD_FINISH) { x.finish = 'solid'; p = true; } });
+    state.ideas.forEach((idea) => {
+      (idea.nails || []).forEach((n) => { if (n && n.finish === OLD_FINISH) { n.finish = 'solid'; i = true; } });
+      (idea.lines || []).forEach((l) => { if (l && l.finish === OLD_FINISH) { l.finish = 'solid'; i = true; } });
+    });
+    state.designs.forEach((x) => (x.decor || []).forEach((q) => {
+      if (q.kind === 'gems' && !GEMS[q.gemColor]) { q.gemColor = 'silver'; d = true; }
+    }));
+    if (p) persist('polishes');
+    if (i) persist('ideas');
+    if (d) persist('designs');
+  })();
   function designLabel(d) {
     if (!d.main) return 'Needs new tags';
     return [MAINS[d.main], ...d.decor.map((x) => DECOR_LOWER[x.kind])].join(' + ');
@@ -107,10 +128,18 @@
     db: null,
     open() {
       return new Promise((res) => {
+        // Never leave the app blank: if the database is stuck, carry on without it after 4s.
+        const timer = setTimeout(() => res(false), 4000);
         try {
           const r = indexedDB.open('nail-design-planner', 1);
           r.onupgradeneeded = () => r.result.createObjectStore('photos');
-          r.onsuccess = () => { this.db = r.result; res(true); };
+          r.onsuccess = () => {
+            clearTimeout(timer);
+            this.db = r.result;
+            // let another copy of the app (another tab, a newer version) upgrade or reset it
+            this.db.onversionchange = () => { this.db.close(); this.db = null; };
+            res(true);
+          };
           r.onerror = () => res(false);
           r.onblocked = () => res(false);
         } catch { res(false); }
@@ -150,7 +179,7 @@
   }
 
   // ---------- small pieces ----------
-  const capHTML = (p, size = '') => `<span class="cap ${size}" data-finish="${esc(p.finish || 'creme')}" style="--c:${safeColor(p.color)}" aria-hidden="true"></span>`;
+  const capHTML = (p, size = '') => `<span class="cap ${size}" data-finish="${esc(finishKey(p.finish))}" style="--c:${safeColor(p.color)}" aria-hidden="true"></span>`;
   const seasonTag = (s) => `<span class="tag tag-${s}">${SEASON_LABEL[s]}</span>`;
   const tagsHTML = (p) => p.seasons.map(seasonTag).join('') + (p.base ? '<span class="tag tag-base">Base</span>' : '');
   const emptyHTML = (art, title, next) => `<div class="empty"><div class="empty-art">${art}</div><p class="empty-title">${title}</p><p class="empty-next">${next}</p></div>`;
@@ -221,10 +250,11 @@
     }
     return `<g clip-path="url(#${clip})">${s}</g>`;
   }
-  function gemsSVG(color, cx, ny, w, h, p) {
-    return [[0.3, 0.13], [0.55, 0.17], [0.8, 0.13]].map(([t, rf]) => {
+  // fills: three colors, one per gem (silver/gold repeat one color; multicolored uses three)
+  function gemsSVG(fills, cx, ny, w, h, p) {
+    return [[0.3, 0.13], [0.55, 0.17], [0.8, 0.13]].map(([t, rf], k) => {
       const r = w * rf, y = ny + h * t;
-      return `<circle cx="${cx}" cy="${y}" r="${r}" fill="${safeColor(color)}" stroke="#fff" stroke-width=".8"/><circle cx="${cx}" cy="${y}" r="${r}" fill="url(#${p}gs)"/>`;
+      return `<circle cx="${cx}" cy="${y}" r="${r}" fill="${safeColor(fills[k])}" stroke="rgba(58,20,38,.35)" stroke-width=".7"/><circle cx="${cx}" cy="${y}" r="${r}" fill="url(#${p}gs)"/><circle cx="${cx - r * 0.35}" cy="${y - r * 0.35}" r="${r * 0.28}" fill="#fff" opacity=".9"/>`;
     }).join('');
   }
 
@@ -258,8 +288,9 @@
       g += `<ellipse cx="${sx}" cy="${sy}" rx="${f.w * 0.09}" ry="${f.h * 0.22}" fill="#fff" opacity="${n.finish === 'matte' ? 0.45 : 0.85}" transform="rotate(-8 ${sx} ${sy})"/>`;
       g += `<circle cx="${nx + f.w * 0.44}" cy="${ny + f.h * 0.12}" r="1.3" fill="#fff" opacity=".8"/>`;
       const gem = deco.find((q) => q.kind === 'gems');
-      if (gem) g += gemsSVG(gem.color, f.cx + f.w * 0.08, ny, f.w, f.h, p);
-      else if (n.gems) g += gemsSVG('#D4A24C', f.cx + f.w * 0.08, ny, f.w, f.h, p);
+      // gem.gem = silver/gold/multi; older saved ideas used a polish color, or `gems: true` (gold)
+      const fills = gem ? (gem.gem ? GEM_FILLS[gemKey(gem.gem)] : [gem.color, gem.color, gem.color]) : n.gems ? GEM_FILLS.gold : null;
+      if (fills) g += gemsSVG(fills, f.cx + f.w * 0.08, ny, f.w, f.h, p);
       tops += `<g transform="${rot}">${g}</g>`;
     });
     return `<svg class="hand" viewBox="0 20 360 150" role="img" aria-label="${esc(label || 'Nail idea drawing')}">
@@ -303,7 +334,7 @@
         ${capHTML(p)}
         <span class="pc-body">
           <span class="pc-name">${esc(p.name)}</span>
-          <span class="pc-finish">${esc(FINISHES[p.finish] || 'Crème')}</span>
+          <span class="pc-finish">${esc(FINISHES[finishKey(p.finish)])}</span>
           <span class="tags">${tagsHTML(p)}</span>
         </span>
       </button>`).join('');
@@ -320,14 +351,14 @@
     const cap = $('#pCapPreview');
     cap.style.setProperty('--c', safeColor($('#pColor').value));
     const f = $('#pFinish input:checked');
-    cap.dataset.finish = f ? f.value : 'creme';
+    cap.dataset.finish = f ? f.value : 'solid';
   }
   function openPolish(p) {
     editingPolish = p || null;
     $('#polishDialogTitle').textContent = p ? 'Edit polish' : 'New polish';
     $('#pName').value = p ? p.name : '';
     $('#pColor').value = p ? safeColor(p.color) : '#B0245A';
-    const finish = p ? p.finish : 'creme';
+    const finish = p ? finishKey(p.finish) : 'solid';
     $$('#pFinish input').forEach((i) => { i.checked = i.value === finish; });
     $$('#pSeasons input').forEach((i) => { i.checked = p ? p.seasons.includes(i.value) : false; });
     $('#pBase').checked = p ? !!p.base : false;
@@ -345,7 +376,7 @@
     const data = {
       name: name.slice(0, 60),
       color: safeColor($('#pColor').value).toUpperCase(),
-      finish: ($('#pFinish input:checked') || {}).value || 'creme',
+      finish: ($('#pFinish input:checked') || {}).value || 'solid',
       seasons,
       base: $('#pBase').checked,
     };
@@ -368,7 +399,7 @@
 
   // ---------- designs ----------
   function decorSummary(d) {
-    return d.decor.map((x) => `${DECOR_LINE[x.kind]}: ${fingerPhrase(x.fingers, x.all)}`);
+    return d.decor.map((x) => `${x.kind === 'gems' ? `${GEMS[gemKey(x.gemColor)]} gems` : DECOR_LINE[x.kind]}: ${fingerPhrase(x.fingers, x.all)}`);
   }
   function renderDesigns() {
     const list = $('#designList');
@@ -412,6 +443,11 @@
         <legend>Where ${DECOR_WHERE[kind]}?</legend>
         <label class="chip chip-all"><input type="checkbox" name="f-${kind}" data-all value="all"><span>All nails</span></label>
         <div class="hands-pick">${row(kind, 'Left', [0, 1, 2, 3, 4])}${row(kind, 'Right', [5, 6, 7, 8, 9])}</div>
+        ${kind === 'gems' ? `<div class="gem-picker" role="radiogroup" aria-label="Gem color">
+          <b class="gem-picker-title">Gem color</b>
+          <div class="gem-options">${Object.entries(GEMS).map(([k, v]) =>
+            `<label class="gem-choice"><input type="radio" name="gemColor" value="${k}"><span><i class="gem-swatch gem-${k}" aria-hidden="true"></i>${v}</span></label>`).join('')}</div>
+        </div>` : ''}
       </fieldset>`).join('');
   }
   function updateDecorBlocks() {
@@ -423,7 +459,7 @@
     const t = e.target;
     const block = t.closest('.finger-block');
     $('#designError').textContent = '';
-    if (!block || !t.checked) return;
+    if (!block || !t.checked || !t.matches('[data-all], [data-finger]')) return;
     if (t.hasAttribute('data-all')) $$('[data-finger]', block).forEach((i) => { i.checked = false; });
     else $('[data-all]', block).checked = false;
   }
@@ -450,6 +486,8 @@
       $('[data-all]', b).checked = !!(x && x.all);
       $$('[data-finger]', b).forEach((i) => { i.checked = !!(x && !x.all && x.fingers.includes(Number(i.value))); });
     });
+    const gemColor = gemKey((decor.find((q) => q.kind === 'gems') || {}).gemColor);
+    $$('.gem-choice input').forEach((i) => { i.checked = i.value === gemColor; });
     $$('#dColors input').forEach((i) => { i.checked = Number(i.value) === (d ? d.colors : 1); });
     $('#designDelete').hidden = !d;
     $('#designError').textContent = '';
@@ -501,7 +539,9 @@
       const fingers = $$('[data-finger]:checked', block).map((x) => Number(x.value));
       const all = $('[data-all]', block).checked || fingers.length === 10;
       if (!all && !fingers.length) { err.textContent = `Where ${DECOR_WHERE[kind]}? Tap fingers, or pick All nails.`; return; }
-      decor.push({ kind, all, fingers: all ? [] : fingers });
+      const entry = { kind, all, fingers: all ? [] : fingers };
+      if (kind === 'gems') entry.gemColor = gemKey(($('.gem-choice input:checked', block) || {}).value);
+      decor.push(entry);
     }
     let d = editingDesign;
     if (d) {
@@ -547,8 +587,9 @@
   const sameColor = (a, b) => colorKey(a) === colorKey(b);
   const distinctColors = (list) => new Set(list.map(colorKey)).size;
 
+  const paintDecor = (d) => d.decor.filter((x) => x.kind !== 'gems');
   function shortfall(d, S, B) {
-    const needSeason = 1 + (d.decor.length ? 1 : 0);
+    const needSeason = 1 + (paintDecor(d).length ? 1 : 0);
     const needBase = d.main === 'french' && !B.length;
     const have = d.main === 'french' && B.length
       ? Math.max(...B.map((b) => distinctColors(S.filter((p) => !sameColor(p, b)))))
@@ -561,7 +602,7 @@
     const sl = SEASON_LABEL[season].toLowerCase();
     const S = state.polishes.filter((p) => p.seasons.includes(season));
     const B = state.polishes.filter((p) => p.base);
-    const hasDecor = d.decor.length > 0;
+    const hasDecor = paintDecor(d).length > 0; // gems don't use a polish
     let main = null;
     if (d.main === 'french') {
       for (const b of shuffle(B)) {
@@ -579,16 +620,18 @@
 
     const under = main.solid ? [main.solid] : [main.base, main.tip];
     const pool = S.filter((p) => under.every((u) => !sameColor(p, u)));
-    const picks = d.decor.map((x) => ({ ...x, polish: pick(pool) }));
+    const picks = d.decor.map((x) => (x.kind === 'gems' ? { ...x, gem: gemKey(x.gemColor) } : { ...x, polish: pick(pool) }));
     const mainNail = main.solid ? snap(main.solid) : { ...snap(main.base), tip: main.tip.color };
     const nails = Array.from({ length: 10 }, (_, i) => ({
       ...mainNail,
-      deco: picks.filter((x) => onFinger(x, i)).map((x) => ({ kind: x.kind, color: x.polish.color })),
+      deco: picks.filter((x) => onFinger(x, i)).map((x) => (x.gem ? { kind: 'gems', gem: x.gem } : { kind: x.kind, color: x.polish.color })),
     }));
     const lines = main.solid
       ? [line('Color', main.solid, `tagged ${sl}`)]
       : [line('Base', main.base, 'tagged base'), line('Tip', main.tip, `tagged ${sl}`)];
-    picks.forEach((x) => lines.push(line(DECOR_LINE[x.kind], x.polish, `tagged ${sl}`, fingerPhrase(x.fingers, x.all))));
+    picks.forEach((x) => lines.push(x.gem
+      ? { label: 'Gems', text: `${GEMS[x.gem]} gems on ${fingerPhrase(x.fingers, x.all)}`, gem: x.gem }
+      : line(DECOR_LINE[x.kind], x.polish, `tagged ${sl}`, fingerPhrase(x.fingers, x.all))));
     lines.push({ label: 'Design', text: `${designLabel(d)}, photo #${d.num}` });
     return { ok: true, idea: { season, designId: d.id, designNum: d.num, title: designLabel(d), nails, lines } };
   }
@@ -610,7 +653,7 @@
     const parts = [];
     if (best.needBase) parts.push('a polish tagged Base');
     if (best.short) parts.push(`${best.short} more ${sl} polish${best.short === 1 ? '' : 'es'}${best.have ? ' in a new color' : ''}`);
-    const why = best.short && best.have && best.design.decor.length
+    const why = best.short && best.have && paintDecor(best.design).length
       ? ' Decorations need a different color from the nail underneath.'
       : best.short && best.have && best.design.main === 'french'
         ? ' The tip needs a different color from the base.'
@@ -627,7 +670,9 @@
   // ---------- ideas UI ----------
   function linesHTML(lines) {
     return `<ul class="why">${lines.map((l) => {
-      const icon = l.color ? capHTML(l, 'cap-sm') : `<span class="dot" aria-hidden="true">${l.gem ? '◆' : '✦'}</span>`;
+      const icon = l.color ? capHTML(l, 'cap-sm')
+        : GEMS[l.gem] ? `<i class="gem-swatch gem-${l.gem} gem-sm" aria-hidden="true"></i>`
+          : `<span class="dot" aria-hidden="true">${l.gem ? '◆' : '✦'}</span>`;
       return `<li>${icon}<span><b>${esc(l.label)}:</b> ${esc(l.text)}</span></li>`;
     }).join('')}</ul>`;
   }
@@ -809,7 +854,7 @@
     if (!name) return null;
     return {
       id: str(p.id || uid(), 40), name, color: safeColor(p.color).toUpperCase(),
-      finish: FINISHES[p.finish] ? p.finish : 'creme',
+      finish: finishKey(p.finish),
       seasons: [...new Set((Array.isArray(p.seasons) ? p.seasons : []).filter((s) => SEASONS.includes(s)))],
       base: !!p.base,
     };
@@ -833,7 +878,9 @@
       const all = !!x.all || fingers.length === 10;
       if (!all && !fingers.length) return;
       seen.add(x.kind);
-      out.decor.push({ kind: x.kind, all, fingers: all ? [] : fingers });
+      const entry = { kind: x.kind, all, fingers: all ? [] : fingers };
+      if (x.kind === 'gems') entry.gemColor = gemKey(x.gemColor);
+      out.decor.push(entry);
     });
     out.decor.sort((a, b) => Object.keys(DECOR).indexOf(a.kind) - Object.keys(DECOR).indexOf(b.kind));
     if (d.needsRetag || !out.main) { out.needsRetag = true; out.oldTags = str(d.oldTags || 'Old tag', 80); }
@@ -843,17 +890,19 @@
     if (!i || typeof i !== 'object' || !SEASONS.includes(i.season) || !Array.isArray(i.nails)) return null;
     const nails = Array.from({ length: 10 }, (_, k) => {
       const n = i.nails[k] || {};
-      const o = { color: safeColor(n.color), name: str(n.name, 60), finish: FINISHES[n.finish] ? n.finish : 'creme' };
+      const o = { color: safeColor(n.color), name: str(n.name, 60), finish: finishKey(n.finish) };
       if (HEX.test(n.tip)) o.tip = n.tip;
       if (n.gems) o.gems = true;
-      const deco = (Array.isArray(n.deco) ? n.deco : []).filter((x) => x && DECOR[x.kind] && HEX.test(x.color)).map((x) => ({ kind: x.kind, color: x.color }));
+      const deco = (Array.isArray(n.deco) ? n.deco : [])
+        .filter((x) => x && DECOR[x.kind] && (HEX.test(x.color) || (x.kind === 'gems' && GEMS[x.gem])))
+        .map((x) => (x.kind === 'gems' && GEMS[x.gem] ? { kind: 'gems', gem: x.gem } : { kind: x.kind, color: x.color }));
       if (deco.length) o.deco = deco;
       return o;
     });
     const lines = (Array.isArray(i.lines) ? i.lines : []).slice(0, 10).map((l) => {
       const o = { label: str(l && l.label, 20), text: str(l && l.text, 200) };
-      if (l && HEX.test(l.color)) { o.color = l.color; o.finish = FINISHES[l.finish] ? l.finish : 'creme'; }
-      if (l && l.gem) o.gem = true;
+      if (l && HEX.test(l.color)) { o.color = l.color; o.finish = finishKey(l.finish); }
+      if (l && l.gem) o.gem = GEMS[l.gem] ? l.gem : true;
       return o;
     });
     const created = DATE_RE.test(str(i.createdAt).slice(0, 10)) ? str(i.createdAt, 40) : new Date().toISOString();
